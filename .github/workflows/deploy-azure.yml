@@ -64,9 +64,9 @@ jobs:
             --name "$ACR_NAME" \
             --image "$IMAGE_NAME:${GITHUB_SHA}" \
             --output none
-          IMAGE_DIGEST=$(az acr manifest show \
-            --registry "$ACR_NAME" \
-            --name "$IMAGE_NAME:${GITHUB_SHA}" \
+          IMAGE_DIGEST=$(az acr repository show \
+            --name "$ACR_NAME" \
+            --image "$IMAGE_NAME:${GITHUB_SHA}" \
             --query digest \
             --output tsv)
           test -n "$IMAGE_DIGEST"
