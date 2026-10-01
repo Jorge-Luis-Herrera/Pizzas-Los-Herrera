@@ -17,11 +17,13 @@ env:
   LOCATION: eastus
   ACR_NAME: cac7aa06a97facr
   CONTAINER_ENV: pizzas-los-herrera-env
+  CONTAINER_ENV_FALLBACK: pizzas-los-herrera-env-wp
   APP_NAME: pizzas-los-herrera
   IMAGE_NAME: pizzeria-api
   STORAGE_ACCOUNT: pizzeriastorage9319
   FILE_SHARE: pizzeria-data
   STORAGE_NAME: pizzeria-data
+  LOG_ANALYTICS_WORKSPACE: pizzas-los-herrera-logs
 
 jobs:
   deploy:
@@ -84,6 +86,7 @@ jobs:
           set -euo pipefail
           ADMIN_USER="${ADMIN_USER:-admin}"
           IMAGE="$ACR_NAME.azurecr.io/$IMAGE_NAME@$IMAGE_DIGEST"
+          DEPLOY_ENV="$CONTAINER_ENV"
           ACR_USER=$(az acr credential show --name "$ACR_NAME" --query username --output tsv)
           ACR_PASSWORD=$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' --output tsv)
 
@@ -107,17 +110,81 @@ jobs:
             --name "$FILE_SHARE" \
             --quota 5 \
             --output none
-          az containerapp env storage set \
-            --name "$CONTAINER_ENV" \
+
+          if ! az containerapp env storage set \
+            --name "$DEPLOY_ENV" \
             --resource-group "$RESOURCE_GROUP" \
             --storage-name "$STORAGE_NAME" \
             --azure-file-account-name "$STORAGE_ACCOUNT" \
             --azure-file-account-key "$STORAGE_KEY" \
             --azure-file-share-name "$FILE_SHARE" \
             --access-mode ReadWrite \
-            --output none
+            --output none 2>/tmp/containerapp-env-storage.err; then
+            cat /tmp/containerapp-env-storage.err >&2
+            if grep -q "ExpressEnvironmentResourceNotSupported" /tmp/containerapp-env-storage.err; then
+              DEPLOY_ENV="$CONTAINER_ENV_FALLBACK"
+              az monitor log-analytics workspace create \
+                --resource-group "$RESOURCE_GROUP" \
+                --workspace-name "$LOG_ANALYTICS_WORKSPACE" \
+                --location "$LOCATION" \
+                --sku PerGB2018 \
+                --output none
+              LOG_WORKSPACE_ID=$(az monitor log-analytics workspace show \
+                --resource-group "$RESOURCE_GROUP" \
+                --workspace-name "$LOG_ANALYTICS_WORKSPACE" \
+                --query customerId \
+                --output tsv)
+              LOG_WORKSPACE_KEY=$(az monitor log-analytics workspace get-shared-keys \
+                --resource-group "$RESOURCE_GROUP" \
+                --workspace-name "$LOG_ANALYTICS_WORKSPACE" \
+                --query primarySharedKey \
+                --output tsv)
+              if ! az containerapp env show --name "$DEPLOY_ENV" --resource-group "$RESOURCE_GROUP" --output none 2>/dev/null; then
+                az containerapp env create \
+                  --name "$DEPLOY_ENV" \
+                  --resource-group "$RESOURCE_GROUP" \
+                  --location "$LOCATION" \
+                  --enable-workload-profiles true \
+                  --logs-workspace-id "$LOG_WORKSPACE_ID" \
+                  --logs-workspace-key "$LOG_WORKSPACE_KEY" \
+                  --output none
+              fi
+              az containerapp env storage set \
+                --name "$DEPLOY_ENV" \
+                --resource-group "$RESOURCE_GROUP" \
+                --storage-name "$STORAGE_NAME" \
+                --azure-file-account-name "$STORAGE_ACCOUNT" \
+                --azure-file-account-key "$STORAGE_KEY" \
+                --azure-file-share-name "$FILE_SHARE" \
+                --access-mode ReadWrite \
+                --output none
+            else
+              exit 1
+            fi
+          fi
 
           if az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" >/dev/null 2>&1; then
+            CURRENT_ENV_ID=$(az containerapp show \
+              --name "$APP_NAME" \
+              --resource-group "$RESOURCE_GROUP" \
+              --query properties.managedEnvironmentId \
+              --output tsv)
+            CURRENT_ENV_NAME="${CURRENT_ENV_ID##*/}"
+            if [ "$CURRENT_ENV_NAME" != "$DEPLOY_ENV" ]; then
+              az containerapp delete \
+                --name "$APP_NAME" \
+                --resource-group "$RESOURCE_GROUP" \
+                --yes \
+                --output none
+              CREATE_APP=true
+            else
+              CREATE_APP=false
+            fi
+          else
+            CREATE_APP=true
+          fi
+
+          if [ "$CREATE_APP" = false ]; then
             az containerapp registry set \
               --name "$APP_NAME" \
               --resource-group "$RESOURCE_GROUP" \
@@ -139,7 +206,7 @@ jobs:
             az containerapp create \
               --name "$APP_NAME" \
               --resource-group "$RESOURCE_GROUP" \
-              --environment "$CONTAINER_ENV" \
+              --environment "$DEPLOY_ENV" \
               --image "$IMAGE" \
               --registry-server "$ACR_NAME.azurecr.io" \
               --registry-username "$ACR_USER" \
@@ -170,7 +237,16 @@ jobs:
               --arg storage "$STORAGE_NAME" \
               --arg database_url "sqlite:///mnt/pizzeria-data/pizzeria.db?mode=rwc" \
               --arg uploads_dir "/mnt/pizzeria-data/uploads" '
-                .properties.template.containers[0].image = $image
+                {
+                  location: .location,
+                  tags: (.tags // {}),
+                  properties: {
+                    managedEnvironmentId: .properties.managedEnvironmentId,
+                    configuration: .properties.configuration,
+                    template: .properties.template
+                  }
+                }
+                | .properties.template.containers[0].image = $image
                 | .properties.template.containers[0].env = ((.properties.template.containers[0].env // [])
                     | map(select(.name != "DATABASE_URL" and .name != "UPLOADS_DIR"))
                     + [{name: "DATABASE_URL", value: $database_url}, {name: "UPLOADS_DIR", value: $uploads_dir}])
