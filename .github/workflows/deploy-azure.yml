@@ -64,6 +64,13 @@ jobs:
             --name "$ACR_NAME" \
             --image "$IMAGE_NAME:${GITHUB_SHA}" \
             --output none
+          IMAGE_DIGEST=$(az acr manifest show \
+            --registry "$ACR_NAME" \
+            --name "$IMAGE_NAME:${GITHUB_SHA}" \
+            --query digest \
+            --output tsv)
+          test -n "$IMAGE_DIGEST"
+          echo "IMAGE_DIGEST=$IMAGE_DIGEST" >> "$GITHUB_ENV"
 
       - name: Create or update Container App
         env:
@@ -73,7 +80,7 @@ jobs:
         run: |
           set -euo pipefail
           ADMIN_USER="${ADMIN_USER:-admin}"
-          IMAGE="$ACR_NAME.azurecr.io/$IMAGE_NAME:${GITHUB_SHA}"
+          IMAGE="$ACR_NAME.azurecr.io/$IMAGE_NAME@$IMAGE_DIGEST"
           ACR_USER=$(az acr credential show --name "$ACR_NAME" --query username --output tsv)
           ACR_PASSWORD=$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' --output tsv)
 
