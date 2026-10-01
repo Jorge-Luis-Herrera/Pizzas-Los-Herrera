@@ -29,13 +29,16 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Register required providers
+      - name: Verify required providers
         run: |
           set -euxo pipefail
-          az provider register --namespace Microsoft.App --wait
-          az provider register --namespace Microsoft.ContainerRegistry --wait
-          az provider show --namespace Microsoft.App --query registrationState --output tsv
-          az provider show --namespace Microsoft.ContainerRegistry --query registrationState --output tsv
+          for provider in Microsoft.App Microsoft.ContainerRegistry Microsoft.OperationalInsights; do
+            state=$(az provider show --namespace "$provider" --query registrationState --output tsv)
+            test "$state" = "Registered" || {
+              echo "ERROR: $provider no está registrado (estado: $state). Un administrador debe registrarlo una vez en la suscripción."
+              exit 1
+            }
+          done
 
       - name: Login to Azure Container Registry
         id: acr
