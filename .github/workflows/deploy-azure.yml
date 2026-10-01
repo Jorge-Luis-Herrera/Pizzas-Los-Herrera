@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: deploy-pizzeria-production
+  cancel-in-progress: false
+
 env:
   RESOURCE_GROUP: rg-pizzeria
   LOCATION: eastus
