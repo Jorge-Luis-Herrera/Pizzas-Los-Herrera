@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pizzería Los Herrera | Pide tus Pizzas Favoritas</title>
+  <meta name="description" content="Pizzería Los Herrera. Pide tus pizzas artesanales a domicilio. Envíos con ubicación GPS y pedidos directo por WhatsApp.">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Client Header -->
+  <header>
+    <div class="nav-container">
+      <a href="#" class="logo">
+        <span class="logo-icon">🍕</span>
+        <div>
+          <span style="display: block; font-size: 1.25rem;">Pizzería Los Herrera</span>
+          <span style="font-size: 0.75rem; color: var(--primary); font-weight: 500; display: block; margin-top: -3px;">Sabor Artesanal & Entregas Rápidas</span>
+        </div>
+      </a>
+    </div>
+  </header>
+
+  <!-- Main Content Container -->
+  <main>
+    <!-- Hero Banner -->
+    <section class="hero-banner">
+      <div class="hero-content">
+        <span class="hero-tag">🔥 Hornos Calientes & Ingredientes Frescos</span>
+        <h1 class="hero-title">¡Las mejores pizzas directo a tu puerta!</h1>
+        <p class="hero-subtitle">Elige tus especialidades favoritas, indica tu dirección o GPS y te enviamos tu pedido al instante por WhatsApp.</p>
+      </div>
+    </section>
+
+    <!-- Menú & Catálogo de Productos -->
+    <section class="view-section active">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">Nuestro Menú</h2>
+          <p class="section-subtitle">Selecciona tus pizzas y bebidas favoritas para añadir al carrito</p>
+        </div>
+      </div>
+
+      <!-- Filtro por Categorías -->
+      <div class="category-pills" id="category-pills">
+        <button class="pill-btn active" data-category="all">Todas</button>
+        <button class="pill-btn" data-category="Pizza">Pizzas</button>
+        <button class="pill-btn" data-category="Bebidas">Bebidas</button>
+        <button class="pill-btn" data-category="Postres">Postres</button>
+        <button class="pill-btn" data-category="Extras">Extras</button>
+      </div>
+
+      <!-- Grid de Productos (Renderizado por app.js) -->
+      <div class="products-grid" id="products-container">
+        <div class="empty-state" style="grid-column: 1 / -1;">
+          <p>Cargando delicioso menú...</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Floating Cart Button -->
+  <button class="cart-floating-btn" id="btn-open-cart">
+    <span>🛒 Ver Mi Pedido</span>
+    <span class="cart-badge" id="cart-count">0</span>
+  </button>
+
+  <!-- MODAL CHECKOUT / CARRITO -->
+  <div class="modal-overlay" id="modal-cart">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title">Tu Pedido</h3>
+        <button class="btn-close" id="btn-close-cart">&times;</button>
+      </div>
+
+      <!-- Lista de Ítems en el Carrito -->
+      <div class="cart-items-list" id="cart-items-container">
+        <!-- Renderizado dinámico por app.js -->
+      </div>
+
+      <div class="cart-total-bar">
+        <span>Total a pagar:</span>
+        <span id="cart-total-amount" style="color: var(--primary); font-size: 1.4rem;">$0.00</span>
+      </div>
+
+      <!-- Formulario de Datos del Cliente y Entrega -->
+      <form id="form-checkout">
+        <h4 style="margin-bottom: 0.75rem; color: var(--text-main); font-size: 1.05rem;">📍 Datos de Entrega</h4>
+
+        <div class="form-group">
+          <label class="form-label" for="cust-name">Nombre Completo *</label>
+          <input type="text" id="cust-name" class="form-input" placeholder="Tu nombre y apellidos" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="cust-id-number">Carnet de Identidad *</label>
+          <input type="text" id="cust-id-number" class="form-input" placeholder="Ej: 90010112345" maxlength="11" pattern="[0-9]{11}" title="El carnet debe tener 11 dígitos" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="cust-address">Dirección de Entrega Exacta *</label>
+          <input type="text" id="cust-address" class="form-input" placeholder="Calle, número, entre calles y reparto/municipio" required>
+        </div>
+
+        <div class="form-group">
+          <button type="button" class="btn-action" id="btn-get-gps" style="width: 100%; justify-content: center; padding: 0.65rem; margin-bottom: 0.5rem; background: rgba(46, 196, 182, 0.12); color: var(--accent-green); border-color: rgba(46, 196, 182, 0.3);">
+            📍 Capturar Mi Ubicación GPS Actual
+          </button>
+          <input type="hidden" id="cust-lat">
+          <input type="hidden" id="cust-lng">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="cust-notes">Notas / Indicaciones del Pedido (Opcional)</label>
+          <textarea id="cust-notes" class="form-textarea" rows="2" placeholder="Ej: Traer cambio de $50, poco queso, tocar timbre azul..."></textarea>
+        </div>
+
+        <button type="submit" class="btn-submit" id="btn-submit-order" style="padding: 0.95rem; font-size: 1.05rem;">
+          💬 Realizar Pedido por WhatsApp
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL DE SEGURIDAD / CONFIRMACIÓN -->
+  <div class="modal-overlay" id="modal-confirm-order">
+    <div class="modal-content" style="max-width: 460px;">
+      <div class="modal-header">
+        <h3 class="modal-title">🔐 Confirmación de Seguridad</h3>
+        <button class="btn-close" id="btn-close-confirm">&times;</button>
+      </div>
+
+      <div style="text-align: center; margin-bottom: 1.25rem;">
+        <div style="font-size: 3rem; margin-bottom: 0.5rem;">📱🍕</div>
+        <h4 style="font-size: 1.15rem; font-weight: 600; color: var(--text-main); margin-bottom: 0.5rem;">
+          ¿Estás seguro de realizar este pedido?
+        </h4>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">
+          El pedido se registrará automáticamente en el sistema de la pizzería y se abrirá tu WhatsApp para enviarlo al dueño.
+        </p>
+      </div>
+
+      <!-- Resumen del Pedido -->
+      <div id="confirm-summary-box" style="background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border-color); padding: 1rem; border-radius: var(--radius-md); margin-bottom: 1.25rem; font-size: 0.9rem;">
+        <!-- Rellenado por app.js -->
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+        <button type="button" class="btn-action" id="btn-cancel-confirm" style="justify-content: center; padding: 0.8rem; background: rgba(255,255,255,0.08);">
+          ❌ Cancelar
+        </button>
+        <button type="button" class="btn-submit" id="btn-final-confirm" style="margin-top: 0; padding: 0.8rem;">
+          ✅ Sí, Confirmar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Component -->
+  <div class="toast" id="toast-msg">Notificación</div>
+
+  <!-- Modal Ver Imagen -->
+  <div class="modal-overlay" id="modal-view-image">
+    <div class="modal-content" style="max-width: 700px; padding: 1rem; background: transparent; border: none; box-shadow: none;">
+      <button class="btn-close" id="btn-close-image" style="position: absolute; top: 0.5rem; right: 0.5rem; z-index: 10; font-size: 2rem; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.8);">&times;</button>
+      <img id="modal-image-src" src="" alt="Producto" style="width: 100%; border-radius: var(--radius-md); display: block;">
+    </div>
+  </div>
+
+  <!-- JS Cliente -->
+  <script src="app.js"></script>
+</body>
+</html>

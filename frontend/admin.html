@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Panel de Administración | Pizzería Los Herrera</title>
+  <meta name="description" content="Panel de Administración para gestionar el menú, modificar productos y controlar pedidos de la Pizzería Los Herrera.">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Login (visible hasta autenticarse) -->
+  <div id="admin-login-view" class="admin-login-view">
+    <form id="form-admin-login" class="admin-login-card">
+      <div class="admin-login-brand">
+        <span class="logo-icon">⚙️</span>
+        <h1>Panel de Administración</h1>
+        <p>Pizzería Los Herrera</p>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="login-username">Usuario</label>
+        <input type="text" id="login-username" class="form-input" autocomplete="username" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="login-password">Contraseña</label>
+        <input type="password" id="login-password" class="form-input" autocomplete="current-password" required>
+      </div>
+      <p id="login-error" class="admin-login-error" hidden></p>
+      <button type="submit" class="btn-submit">Entrar</button>
+    </form>
+  </div>
+
+  <!-- Admin panel (oculto hasta login) -->
+  <div id="admin-panel" hidden>
+
+  <header>
+    <div class="nav-container">
+      <a href="/admin" class="logo">
+        <span class="logo-icon">⚙️</span>
+        <div>
+          <span style="display: block; font-size: 1.2rem;">Panel de Administración</span>
+          <span style="font-size: 0.75rem; color: var(--accent-amber); font-weight: 500; display: block; margin-top: -3px;">Pizzería Los Herrera</span>
+        </div>
+      </a>
+
+      <div style="display: flex; gap: 0.75rem; align-items: center;">
+        <nav class="nav-tabs">
+          <button class="tab-btn active" data-tab="tab-products">
+            <span>🍕</span> Menú (CRUD)
+          </button>
+          <button class="tab-btn" data-tab="tab-orders">
+            <span>📋</span> Pedidos
+          </button>
+        </nav>
+        <a href="/" target="_blank" class="btn-action" style="font-size: 0.85rem; padding: 0.45rem 0.85rem;">
+          🌐 Ver Tienda
+        </a>
+        <button type="button" id="btn-logout" class="btn-action" style="font-size: 0.85rem; padding: 0.45rem 0.85rem;">
+          Salir
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section id="tab-products" class="view-section active">
+      <div class="section-header">
+        <div>
+          <h1 class="section-title">Gestión de Productos (CRUD)</h1>
+          <p class="section-subtitle">Añade nuevas pizzas, modifica precios, cambia la disponibilidad o elimina ítems</p>
+        </div>
+        <button class="pill-btn active" id="btn-open-create-modal" style="padding: 0.5rem 1.1rem; font-size: 0.95rem;">
+          ➕ Crear Nuevo Producto
+        </button>
+      </div>
+
+      <div class="products-grid" id="admin-products-container">
+        <div class="empty-state" style="grid-column: 1 / -1;">
+          <p>Cargando lista de productos...</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-orders" class="view-section">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">Control de Pedidos</h2>
+          <p class="section-subtitle">Revisa comandas, cambia estados y accede a ubicaciones o chats</p>
+        </div>
+        <button class="pill-btn" id="btn-refresh-orders">🔄 Actualizar Pedidos</button>
+      </div>
+
+      <div class="category-pills" id="order-tab-pills">
+        <button class="pill-btn active" data-order-tab="pending">🍕 Recibidos / Elaborando</button>
+        <button class="pill-btn" data-order-tab="transit">🛵 En Camino</button>
+        <button class="pill-btn" data-order-tab="delivered">✅ Entregados</button>
+      </div>
+
+      <div class="orders-search-bar">
+        <label class="form-label" for="orders-search-id">Buscar pedido</label>
+        <div class="orders-search-row">
+          <input
+            type="search"
+            id="orders-search-id"
+            class="form-input"
+            placeholder="ID, nombre del cliente o carnet"
+            autocomplete="off"
+            spellcheck="false"
+          >
+          <button type="button" class="btn-action" id="btn-clear-orders-search" hidden>Limpiar</button>
+        </div>
+      </div>
+
+      <div class="orders-list" id="admin-orders-container">
+        <div class="empty-state">
+          <p>Cargando lista de pedidos...</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="modal-overlay" id="modal-create-product">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title">Añadir Nuevo Producto al Menú</h3>
+        <button class="btn-close" id="btn-close-create-modal">&times;</button>
+      </div>
+
+      <form id="form-create-product">
+        <div class="form-group">
+          <label class="form-label" for="prod-name">Nombre del Producto *</label>
+          <input type="text" id="prod-name" class="form-input" placeholder="Ej: Pizza Jamón y Champñones" required>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="prod-price">Precio ($) *</label>
+            <input type="number" step="0.01" id="prod-price" class="form-input" placeholder="11.50" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="prod-category">Categoría *</label>
+            <select id="prod-category" class="form-select">
+              <option value="Pizza">Pizza</option>
+              <option value="Bebidas">Bebidas</option>
+              <option value="Postres">Postres</option>
+              <option value="Extras">Extras</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="prod-desc">Descripción / Ingredientes</label>
+          <textarea id="prod-desc" class="form-textarea" rows="3" placeholder="Queso mozzarella, jamón cocido, champiñones frescos y orégano..."></textarea>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Foto del Producto (opcional)</label>
+          <div class="image-upload-area" id="create-image-upload-area">
+            <input type="file" id="prod-image" accept="image/*" hidden>
+            <div id="create-image-preview" class="image-upload-placeholder">
+              <span style="font-size: 1.5rem;">📷</span>
+              <span>Seleccionar imagen</span>
+              <span style="font-size: 0.75rem; color: var(--text-dim);">JPG, PNG, WebP (max 5MB)</span>
+            </div>
+          </div>
+        </div>
+
+        <button type="submit" class="btn-submit">Guardar Producto</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-edit-product">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title">Editar Producto</h3>
+        <button class="btn-close" id="btn-close-edit-modal">&times;</button>
+      </div>
+
+      <form id="form-edit-product">
+        <input type="hidden" id="edit-prod-id">
+
+        <div class="form-group">
+          <label class="form-label" for="edit-prod-name">Nombre del Producto *</label>
+          <input type="text" id="edit-prod-name" class="form-input" required>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="edit-prod-price">Precio ($) *</label>
+            <input type="number" step="0.01" id="edit-prod-price" class="form-input" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="edit-prod-category">Categoría *</label>
+            <select id="edit-prod-category" class="form-select">
+              <option value="Pizza">Pizza</option>
+              <option value="Bebidas">Bebidas</option>
+              <option value="Postres">Postres</option>
+              <option value="Extras">Extras</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="edit-prod-desc">Descripción</label>
+          <textarea id="edit-prod-desc" class="form-textarea" rows="3"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Foto del Producto</label>
+          <div class="image-upload-area" id="edit-image-upload-area">
+            <input type="file" id="edit-prod-image" accept="image/*" hidden>
+            <div id="edit-image-preview" class="image-upload-placeholder">
+              <span style="font-size: 1.5rem;">📷</span>
+              <span>Seleccionar imagen</span>
+              <span style="font-size: 0.75rem; color: var(--text-dim);">JPG, PNG, WebP (max 5MB)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" style="display: flex; align-items: center; gap: 0.6rem; cursor: pointer; background: rgba(255,255,255,0.04); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+            <input type="checkbox" id="edit-prod-available" style="width: 20px; height: 20px; accent-color: var(--primary);">
+            <span style="font-weight: 500;">Producto Disponible para la Venta</span>
+          </label>
+        </div>
+
+        <button type="submit" class="btn-submit">💾 Guardar Cambios</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Confirmación: Completar pedido -->
+  <div class="modal-overlay" id="modal-complete-order">
+    <div class="modal-content" style="max-width: 460px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Completar pedido</h3>
+        <button type="button" class="btn-close" id="btn-close-complete">&times;</button>
+      </div>
+
+      <div style="text-align: center; margin-bottom: 1.25rem;">
+        <h4 style="font-size: 1.15rem; font-weight: 600; color: var(--text-main); margin-bottom: 0.5rem;">
+          ¿Marcar este pedido como entregado?
+        </h4>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">
+          El estado pasará a <strong style="color: var(--accent-green);">Entregado</strong> y el pedido quedará completado.
+        </p>
+      </div>
+
+      <div id="complete-summary-box" style="background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border-color); padding: 1rem; border-radius: var(--radius-md); margin-bottom: 1.25rem; font-size: 0.9rem;">
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+        <button type="button" class="btn-action" id="btn-cancel-complete" style="justify-content: center; padding: 0.8rem; background: rgba(255,255,255,0.08);">
+          Cancelar
+        </button>
+        <button type="button" class="btn-submit btn-complete-confirm" id="btn-final-complete" style="margin-top: 0; padding: 0.8rem;">
+          Sí, completar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirmación: Eliminar pedido -->
+  <div class="modal-overlay" id="modal-delete-order">
+    <div class="modal-content" style="max-width: 460px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Eliminar pedido</h3>
+        <button type="button" class="btn-close" id="btn-close-delete">&times;</button>
+      </div>
+
+      <div style="text-align: center; margin-bottom: 1.25rem;">
+        <h4 style="font-size: 1.15rem; font-weight: 600; color: var(--text-main); margin-bottom: 0.5rem;">
+          ¿Eliminar este pedido?
+        </h4>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">
+          Esta acción <strong style="color: var(--accent-gold);">no se puede deshacer</strong>. El pedido y todos sus datos serán borrados permanentemente.
+        </p>
+      </div>
+
+      <div id="delete-summary-box" style="background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border-color); padding: 1rem; border-radius: var(--radius-md); margin-bottom: 1.25rem; font-size: 0.9rem;">
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+        <button type="button" class="btn-action" id="btn-cancel-delete" style="justify-content: center; padding: 0.8rem; background: rgba(255,255,255,0.08);">
+          Cancelar
+        </button>
+        <button type="button" class="btn-submit" id="btn-final-delete" style="margin-top: 0; padding: 0.8rem; background: rgba(247,23,53,0.85);">
+          🗑️ Sí, eliminar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  </div><!-- /admin-panel -->
+
+  <div class="toast" id="toast-msg">Notificación</div>
+
+  <script src="admin.js"></script>
+</body>
+</html>

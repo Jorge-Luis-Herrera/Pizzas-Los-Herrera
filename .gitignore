@@ -1,0 +1,23 @@
+# Build artifacts
+/target/
+backend/target/
+
+# Project archives
+*.tar.gz
+
+# SQLite databases and WAL files
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+
+# Environment / secrets
+.env
+.env.*
+
+# OS / editor
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/

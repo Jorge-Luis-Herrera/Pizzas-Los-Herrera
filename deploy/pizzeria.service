@@ -1,0 +1,17 @@
+[Unit]
+Description=Pizzeria Los Herrera API
+After=network.target
+
+[Service]
+Type=simple
+User=Jorge
+WorkingDirectory=/var/pizzeria
+Environment=ADMIN_USER=admin
+Environment=ADMIN_PASSWORD=CAMBIAR_ESTA_CLAVE
+Environment=PIZZERIA_WHATSAPP=5350722776
+ExecStart=/var/pizzeria/pizzeria-api
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
