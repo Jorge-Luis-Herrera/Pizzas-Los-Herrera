@@ -19,6 +19,9 @@ env:
   CONTAINER_ENV: pizzas-los-herrera-env
   APP_NAME: pizzas-los-herrera
   IMAGE_NAME: pizzeria-api
+  STORAGE_ACCOUNT: pizzeriastorage9319
+  FILE_SHARE: pizzeria-data
+  STORAGE_NAME: pizzeria-data
 
 jobs:
   deploy:
@@ -84,6 +87,36 @@ jobs:
           ACR_USER=$(az acr credential show --name "$ACR_NAME" --query username --output tsv)
           ACR_PASSWORD=$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' --output tsv)
 
+          az storage account create \
+            --name "$STORAGE_ACCOUNT" \
+            --resource-group "$RESOURCE_GROUP" \
+            --location "$LOCATION" \
+            --sku Standard_LRS \
+            --kind StorageV2 \
+            --https-only true \
+            --min-tls-version TLS1_2 \
+            --output none
+          STORAGE_KEY=$(az storage account keys list \
+            --resource-group "$RESOURCE_GROUP" \
+            --account-name "$STORAGE_ACCOUNT" \
+            --query '[0].value' \
+            --output tsv)
+          az storage share-rm create \
+            --resource-group "$RESOURCE_GROUP" \
+            --storage-account "$STORAGE_ACCOUNT" \
+            --name "$FILE_SHARE" \
+            --quota 5 \
+            --output none
+          az containerapp env storage set \
+            --name "$CONTAINER_ENV" \
+            --resource-group "$RESOURCE_GROUP" \
+            --storage-name "$STORAGE_NAME" \
+            --azure-file-account-name "$STORAGE_ACCOUNT" \
+            --azure-file-account-key "$STORAGE_KEY" \
+            --azure-file-share-name "$FILE_SHARE" \
+            --access-mode ReadWrite \
+            --output none
+
           if az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" >/dev/null 2>&1; then
             az containerapp registry set \
               --name "$APP_NAME" \
@@ -99,7 +132,9 @@ jobs:
               --set-env-vars \
                 ADMIN_USER="$ADMIN_USER" \
                 ADMIN_PASSWORD="$ADMIN_PASSWORD" \
-                PIZZERIA_WHATSAPP="${WHATSAPP_NUMBER:-5350722776}"
+                PIZZERIA_WHATSAPP="${WHATSAPP_NUMBER:-5350722776}" \
+                DATABASE_URL="sqlite:///mnt/pizzeria-data/pizzeria.db?mode=rwc" \
+                UPLOADS_DIR="/mnt/pizzeria-data/uploads"
           else
             az containerapp create \
               --name "$APP_NAME" \
@@ -116,8 +151,41 @@ jobs:
               --env-vars \
                 ADMIN_USER="$ADMIN_USER" \
                 ADMIN_PASSWORD="$ADMIN_PASSWORD" \
-                PIZZERIA_WHATSAPP="${WHATSAPP_NUMBER:-5350722776}"
+                PIZZERIA_WHATSAPP="${WHATSAPP_NUMBER:-5350722776}" \
+                DATABASE_URL="sqlite:///mnt/pizzeria-data/pizzeria.db?mode=rwc" \
+                UPLOADS_DIR="/mnt/pizzeria-data/uploads"
           fi
+
+          APP_ID=$(az containerapp show \
+            --name "$APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query id \
+            --output tsv)
+          az containerapp show \
+            --name "$APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --output json |
+            jq \
+              --arg image "$IMAGE" \
+              --arg storage "$STORAGE_NAME" \
+              --arg database_url "sqlite:///mnt/pizzeria-data/pizzeria.db?mode=rwc" \
+              --arg uploads_dir "/mnt/pizzeria-data/uploads" '
+                .properties.template.containers[0].image = $image
+                | .properties.template.containers[0].env = ((.properties.template.containers[0].env // [])
+                    | map(select(.name != "DATABASE_URL" and .name != "UPLOADS_DIR"))
+                    + [{name: "DATABASE_URL", value: $database_url}, {name: "UPLOADS_DIR", value: $uploads_dir}])
+                | .properties.template.containers[0].volumeMounts = ((.properties.template.containers[0].volumeMounts // [])
+                    | map(select(.volumeName != "pizzeria-data"))
+                    + [{volumeName: "pizzeria-data", mountPath: "/mnt/pizzeria-data"}])
+                | .properties.template.volumes = ((.properties.template.volumes // [])
+                    | map(select(.name != "pizzeria-data"))
+                    + [{name: "pizzeria-data", storageName: $storage, storageType: "AzureFile"}])
+              ' > /tmp/pizzeria-containerapp.json
+          az rest \
+            --method put \
+            --url "https://management.azure.com${APP_ID}?api-version=2024-03-01" \
+            --body @/tmp/pizzeria-containerapp.json \
+            --output none
 
       - name: Smoke test deployment
         run: |
