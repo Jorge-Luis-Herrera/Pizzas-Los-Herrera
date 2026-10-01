@@ -178,7 +178,8 @@ pub async fn delete_product(
     }
 
     if let Some(filename) = image_file {
-        let path = format!("uploads/{}", filename);
+        let uploads_dir = std::env::var("UPLOADS_DIR").unwrap_or_else(|_| "uploads".to_string());
+        let path = format!("{}/{}", uploads_dir, filename);
         let _ = std::fs::remove_file(&path);
     }
 
@@ -204,7 +205,8 @@ pub async fn upload_image(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or((StatusCode::NOT_FOUND, "Producto no encontrado".to_string()))?;
 
-    std::fs::create_dir_all("uploads")
+    let uploads_dir = std::env::var("UPLOADS_DIR").unwrap_or_else(|_| "uploads".to_string());
+    std::fs::create_dir_all(&uploads_dir)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let mut image_filename: Option<String> = None;
@@ -238,7 +240,7 @@ pub async fn upload_image(
         };
 
         let filename = format!("{}.{}", Uuid::new_v4(), ext);
-        let filepath = format!("uploads/{}", filename);
+        let filepath = format!("{}/{}", uploads_dir, filename);
 
         let data = field
             .bytes()

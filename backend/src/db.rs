@@ -5,7 +5,8 @@ use sea_orm::{
 
 pub async fn init_db() -> Result<DatabaseConnection, DbErr> {
     // Asegurar que el archivo de base de datos o su directorio existan
-    let db_url = "sqlite://pizzeria.db?mode=rwc";
+    let db_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "sqlite://pizzeria.db?mode=rwc".to_string());
 
     let db = Database::connect(db_url).await?;
 

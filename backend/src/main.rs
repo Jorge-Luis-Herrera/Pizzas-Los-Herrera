@@ -12,7 +12,7 @@ async fn main() {
 
     let db = match db::init_db().await {
         Ok(connection) => {
-            println!("✅ Base de datos SQLite inicializada exitosamente (pizzeria.db)");
+            println!("✅ Base de datos SQLite inicializada exitosamente");
             connection
         }
         Err(err) => {

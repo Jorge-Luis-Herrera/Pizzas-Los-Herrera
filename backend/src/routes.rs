@@ -23,6 +23,7 @@ pub fn create_router(state: AppState) -> Router {
         "frontend"
     };
 
+    let uploads_dir = std::env::var("UPLOADS_DIR").unwrap_or_else(|_| "uploads".to_string());
     let admin_file_path = format!("{}/admin.html", frontend_path);
 
     Router::new()
@@ -50,7 +51,7 @@ pub fn create_router(state: AppState) -> Router {
             get(orders::get_order).delete(orders::delete_order),
         )
         .route("/api/orders/:id/status", patch(orders::update_order_status))
-        .nest_service("/uploads", ServeDir::new("uploads"))
+        .nest_service("/uploads", ServeDir::new(uploads_dir))
         .fallback_service(ServeDir::new(frontend_path))
         .layer(cors)
         .with_state(state)
