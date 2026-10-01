@@ -1,0 +1,8 @@
+.git
+.gitignore
+backend/target
+backend/pizzeria.db
+backend/pizzeria.db-*
+frontend/node_modules
+pizzeria-los-herrera.tar.gz
+uploads

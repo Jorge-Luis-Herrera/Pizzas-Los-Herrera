@@ -24,8 +24,9 @@ async fn main() {
     let state = AppState::new(db);
     let app = routes::create_router(state);
 
-    let host = "0.0.0.0:3000";
-    let listener = match tokio::net::TcpListener::bind(host).await {
+    let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
+    let host = format!("0.0.0.0:{}", port);
+    let listener = match tokio::net::TcpListener::bind(&host).await {
         Ok(l) => l,
         Err(err) => {
             eprintln!("❌ Error al vincular el servidor en {}: {}", host, err);
@@ -33,7 +34,7 @@ async fn main() {
         }
     };
 
-    println!("🚀 Servidor activo ejecutándose en http://localhost:3000");
+    println!("🚀 Servidor activo ejecutándose en http://{}", host);
     println!("📍 Endpoints disponibles:");
     println!("   - GET  /api/health");
     println!("   - POST /api/auth/login | logout");
