@@ -275,17 +275,17 @@ function renderAdminProducts() {
         <p style="font-size: 1.3rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.75rem;">$${p.price.toFixed(2)}</p>
       </div>
 
-      <div style="display: flex; flex-direction: column; gap: 0.4rem; padding-top: 0.75rem; border-top: 1px solid rgba(255, 255, 255, 0.05);">
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem;">
-          <button class="btn-action" onclick="openEditProductModal('${p.id}')" style="justify-content: center; background: rgba(255,255,255,0.08);">
+      <div class="admin-product-actions">
+        <div class="admin-product-actions-grid">
+          <button class="btn-action admin-product-action" onclick="openEditProductModal('${p.id}')">
             ✏️ Editar
           </button>
-          <button class="btn-action" onclick="toggleProductAvailability('${p.id}', ${!p.available})" style="justify-content: center; background: ${p.available ? 'rgba(247,23,53,0.15)' : 'rgba(46,196,182,0.15)'}; color: ${p.available ? 'var(--accent-gold)' : 'var(--accent-green)'};">
+          <button class="btn-action admin-product-action ${p.available ? 'is-pause' : 'is-activate'}" onclick="toggleProductAvailability('${p.id}', ${!p.available})">
             ${p.available ? '⏸️ Pausar' : '▶️ Activar'}
           </button>
         </div>
 
-        <button class="btn-action" onclick="deleteProduct('${p.id}', '${escapeHtml(p.name)}')" style="justify-content: center; background: rgba(247,23,53,0.2); color: var(--accent-gold); border-color: rgba(247,23,53,0.3);">
+        <button class="btn-action admin-product-action is-delete" onclick="deleteProduct('${p.id}')">
           🗑️ Eliminar Producto
         </button>
       </div>
@@ -337,7 +337,10 @@ function openEditProductModal(id) {
   document.getElementById('modal-edit-product').classList.add('active');
 }
 
-async function deleteProduct(id, productName) {
+async function deleteProduct(id) {
+  const product = adminState.products.find(item => item.id === id);
+  const productName = product ? product.name : 'este producto';
+
   if (!confirm(`¿Estás seguro de eliminar el producto "${productName}" del menú?`)) {
     return;
   }
@@ -405,8 +408,18 @@ function initImageUploadAreas() {
 }
 
 function initAdminForms() {
-  document.getElementById('form-create-product').addEventListener('submit', async (e) => {
+  const createForm = document.getElementById('form-create-product');
+  const createSubmitButton = createForm.querySelector('button[type="submit"]');
+
+  createForm.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (createForm.dataset.submitting === 'true') return;
+
+    createForm.dataset.submitting = 'true';
+    createForm.setAttribute('aria-busy', 'true');
+    createSubmitButton.disabled = true;
+    createSubmitButton.dataset.originalText = createSubmitButton.textContent;
+    createSubmitButton.textContent = 'Guardando producto...';
 
     const name = document.getElementById('prod-name').value.trim();
     const price = parseFloat(document.getElementById('prod-price').value);
@@ -440,6 +453,11 @@ function initAdminForms() {
       loadAdminProducts();
     } catch (err) {
       alert(`Error: ${err.message}`);
+    } finally {
+      createForm.dataset.submitting = 'false';
+      createForm.removeAttribute('aria-busy');
+      createSubmitButton.disabled = false;
+      createSubmitButton.textContent = createSubmitButton.dataset.originalText;
     }
   });
 

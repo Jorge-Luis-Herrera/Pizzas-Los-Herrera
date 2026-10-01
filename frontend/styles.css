@@ -172,7 +172,48 @@ header {
 main {
   max-width: 1200px;
   margin: 2rem auto;
-  padding: 0 1.5rem;
+  padding: 0 1.5rem 5.5rem;
+}
+
+.site-footer {
+  border-top: 1px solid var(--border-color);
+  background: rgba(15, 17, 21, 0.88);
+  padding: 2rem 1.5rem 1.25rem;
+  color: var(--text-muted);
+}
+
+.site-footer-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  gap: 2rem;
+}
+
+.site-footer strong {
+  color: var(--text-main);
+  font-size: 1.05rem;
+}
+
+.site-footer-details {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem 1.25rem;
+  font-size: 0.9rem;
+}
+
+.site-footer a {
+  color: var(--primary-hover);
+}
+
+.site-footer-copy {
+  max-width: 1200px;
+  margin: 1.5rem auto 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-color);
+  font-size: 0.8rem;
+  text-align: center;
 }
 
 .view-section {
@@ -730,6 +771,44 @@ main {
   background: rgba(255, 255, 255, 0.15);
 }
 
+.admin-product-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.admin-product-actions-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+}
+
+.admin-product-action {
+  justify-content: center;
+  background: #292e38;
+  border-color: #48515f;
+  color: var(--text-main);
+}
+
+.admin-product-action:hover {
+  background: #363d49;
+}
+
+.admin-product-action.is-pause,
+.admin-product-action.is-delete {
+  background: #492832;
+  border-color: #8f3d4b;
+  color: #ff9aa7;
+}
+
+.admin-product-action.is-activate {
+  background: #173d3b;
+  border-color: #2c7770;
+  color: #82e0d6;
+}
+
 .btn-whatsapp {
   background: rgba(37, 211, 102, 0.15);
   color: #25d366;
@@ -841,7 +920,18 @@ main {
 
   main {
     margin: 1.25rem auto;
-    padding: 0 1rem;
+    padding: 0 1rem 5.5rem;
+  }
+
+  .site-footer-content {
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .site-footer-details {
+    justify-content: flex-start;
+    flex-direction: column;
+    gap: 0.4rem;
   }
 
   .section-header {
@@ -1013,7 +1103,7 @@ main {
 
 @media (max-width: 420px) {
   main {
-    padding: 0 0.75rem;
+    padding: 0 0.75rem 5.5rem;
   }
 
   header {

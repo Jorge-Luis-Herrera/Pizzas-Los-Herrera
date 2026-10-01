@@ -60,6 +60,10 @@ jobs:
           docker build --tag "$IMAGE:${GITHUB_SHA}" --tag "$IMAGE:latest" .
           docker push "$IMAGE:${GITHUB_SHA}"
           docker push "$IMAGE:latest"
+          az acr repository show \
+            --name "$ACR_NAME" \
+            --image "$IMAGE_NAME:${GITHUB_SHA}" \
+            --output none
 
       - name: Create or update Container App
         env:
