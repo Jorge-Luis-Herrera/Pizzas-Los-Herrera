@@ -1,0 +1,103 @@
+name: Deploy to Azure Container Apps
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  RESOURCE_GROUP: rg-pizzeria
+  LOCATION: eastus
+  ACR_NAME: cac7aa06a97facr
+  CONTAINER_ENV: pizzas-los-herrera-env
+  APP_NAME: pizzas-los-herrera
+  IMAGE_NAME: pizzeria-api
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Register required providers
+        run: |
+          set -euxo pipefail
+          az provider register --namespace Microsoft.App --wait
+          az provider register --namespace Microsoft.ContainerRegistry --wait
+          az provider show --namespace Microsoft.App --query registrationState --output tsv
+          az provider show --namespace Microsoft.ContainerRegistry --query registrationState --output tsv
+
+      - name: Build image in Azure Container Registry
+        run: |
+          set -euxo pipefail
+          az acr build \
+            --registry "$ACR_NAME" \
+            --image "$IMAGE_NAME:${GITHUB_SHA}" \
+            --image "$IMAGE_NAME:latest" \
+            .
+
+      - name: Create or update Container App
+        env:
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          WHATSAPP_NUMBER: ${{ secrets.PIZZERIA_WHATSAPP }}
+        run: |
+          set -euo pipefail
+          IMAGE="$ACR_NAME.azurecr.io/$IMAGE_NAME:${GITHUB_SHA}"
+          ACR_USER=$(az acr credential show --name "$ACR_NAME" --query username --output tsv)
+          ACR_PASSWORD=$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' --output tsv)
+
+          if az containerapp show --name "$APP_NAME" --resource-group "$RESOURCE_GROUP" >/dev/null 2>&1; then
+            az containerapp registry set \
+              --name "$APP_NAME" \
+              --resource-group "$RESOURCE_GROUP" \
+              --server "$ACR_NAME.azurecr.io" \
+              --username "$ACR_USER" \
+              --password "$ACR_PASSWORD"
+
+            az containerapp update \
+              --name "$APP_NAME" \
+              --resource-group "$RESOURCE_GROUP" \
+              --image "$IMAGE" \
+              --set-env-vars \
+                ADMIN_USER=admin \
+                ADMIN_PASSWORD="$ADMIN_PASSWORD" \
+                PIZZERIA_WHATSAPP="${WHATSAPP_NUMBER:-5350722776}"
+          else
+            az containerapp create \
+              --name "$APP_NAME" \
+              --resource-group "$RESOURCE_GROUP" \
+              --environment "$CONTAINER_ENV" \
+              --image "$IMAGE" \
+              --registry-server "$ACR_NAME.azurecr.io" \
+              --registry-username "$ACR_USER" \
+              --registry-password "$ACR_PASSWORD" \
+              --ingress external \
+              --target-port 8080 \
+              --min-replicas 0 \
+              --max-replicas 1 \
+              --env-vars \
+                ADMIN_USER=admin \
+                ADMIN_PASSWORD="$ADMIN_PASSWORD" \
+                PIZZERIA_WHATSAPP="${WHATSAPP_NUMBER:-5350722776}"
+          fi
+
+      - name: Smoke test deployment
+        run: |
+          set -euo pipefail
+          FQDN=$(az containerapp show \
+            --name "$APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query properties.configuration.ingress.fqdn \
+            --output tsv)
+          echo "Application URL: https://$FQDN"
+          curl --fail --retry 10 --retry-delay 5 "https://$FQDN/api/health"
