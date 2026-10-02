@@ -90,6 +90,39 @@ jobs:
           ACR_USER=$(az acr credential show --name "$ACR_NAME" --query username --output tsv)
           ACR_PASSWORD=$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' --output tsv)
 
+          if ! az containerapp env show \
+            --name "$CONTAINER_ENV" \
+            --resource-group "$RESOURCE_GROUP" \
+            >/dev/null 2>&1; then
+            az containerapp env create \
+              --name "$CONTAINER_ENV" \
+              --resource-group "$RESOURCE_GROUP" \
+              --location "$LOCATION"
+          fi
+
+          TARGET_ENV_ID=$(az containerapp env show \
+            --name "$CONTAINER_ENV" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query id \
+            --output tsv)
+
+          if az containerapp show \
+            --name "$APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            >/dev/null 2>&1; then
+            EXISTING_ENV_ID=$(az containerapp show \
+              --name "$APP_NAME" \
+              --resource-group "$RESOURCE_GROUP" \
+              --query properties.managedEnvironmentId \
+              --output tsv)
+            if test "$EXISTING_ENV_ID" != "$TARGET_ENV_ID"; then
+              az containerapp delete \
+                --name "$APP_NAME" \
+                --resource-group "$RESOURCE_GROUP" \
+                --yes
+            fi
+          fi
+
           az storage account create \
             --name "$STORAGE_ACCOUNT" \
             --resource-group "$RESOURCE_GROUP" \
