@@ -1,17 +1,43 @@
+# PLANTILLA de unidad systemd para Pizzería Los Herrera.
+#
+# NO subas este archivo con contraseñas reales dentro. Crea una copia fuera del
+# repositorio y rellena los valores, por ejemplo:
+#
+#   sudo install -m 600 /dev/null /etc/pizzeria/pizzeria.env
+#   sudoedit /etc/pizzeria/pizzeria.env
+#   sudo cp deploy/pizzeria.service /etc/systemd/system/pizzeria.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now pizzeria
+#
+# El archivo .env (600, propiedad de root) debe contener:
+#   ADMIN_USER=admin
+#   ADMIN_PASSWORD=<una contraseña fuerte y única>
+#   PIZZERIA_WHATSAPP=<numero sin +>
+#   DATABASE_URL=sqlite:////var/pizzeria/data/pizzeria.db?mode=rwc
+#   UPLOADS_DIR=/var/pizzeria/uploads
+#   RUST_LOG=info
+
 [Unit]
 Description=Pizzeria Los Herrera API
 After=network.target
 
 [Service]
 Type=simple
+# Sustituye "Jorge" por el usuario del sistema que exista en el servidor.
 User=Jorge
 WorkingDirectory=/var/pizzeria
-Environment=ADMIN_USER=admin
-Environment=ADMIN_PASSWORD=CAMBIAR_ESTA_CLAVE
-Environment=PIZZERIA_WHATSAPP=5350722776
+
+EnvironmentFile=/etc/pizzeria/pizzeria.env
+
 ExecStart=/var/pizzeria/pizzeria-api
 Restart=always
 RestartSec=5
+
+# El proceso solo necesita escribir en el directorio de datos.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/var/pizzeria
 
 [Install]
 WantedBy=multi-user.target

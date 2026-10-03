@@ -50,6 +50,7 @@
           </button>
           <button class="tab-btn" data-tab="tab-orders">
             <span>📋</span> Pedidos
+            <span class="tab-badge" id="orders-badge" hidden>0</span>
           </button>
         </nav>
         <a href="/" target="_blank" class="btn-action" style="font-size: 0.85rem; padding: 0.45rem 0.85rem;">
@@ -135,7 +136,7 @@
         <div class="form-row">
           <div class="form-group">
             <label class="form-label" for="prod-price">Precio ($) *</label>
-            <input type="number" step="0.01" id="prod-price" class="form-input" placeholder="11.50" required>
+            <input type="number" step="0.01" min="0.01" id="prod-price" class="form-input" placeholder="11.50" required>
           </div>
           <div class="form-group">
             <label class="form-label" for="prod-category">Categoría *</label>
@@ -188,7 +189,7 @@
         <div class="form-row">
           <div class="form-group">
             <label class="form-label" for="edit-prod-price">Precio ($) *</label>
-            <input type="number" step="0.01" id="edit-prod-price" class="form-input" required>
+            <input type="number" step="0.01" min="0.01" id="edit-prod-price" class="form-input" required>
           </div>
           <div class="form-group">
             <label class="form-label" for="edit-prod-category">Categoría *</label>
@@ -222,6 +223,13 @@
           <label class="form-label" style="display: flex; align-items: center; gap: 0.6rem; cursor: pointer; background: rgba(255,255,255,0.04); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
             <input type="checkbox" id="edit-prod-available" style="width: 20px; height: 20px; accent-color: var(--primary);">
             <span style="font-weight: 500;">Producto Disponible para la Venta</span>
+          </label>
+        </div>
+
+        <div class="form-group" id="clear-image-row" style="display: none;">
+          <label class="form-label" style="display: flex; align-items: center; gap: 0.6rem; cursor: pointer; background: rgba(247,23,53,0.08); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid rgba(247,23,53,0.3);">
+            <input type="checkbox" id="edit-prod-clear-image" style="width: 20px; height: 20px; accent-color: #f71735;">
+            <span style="font-weight: 500;">Quitar la foto actual de este producto</span>
           </label>
         </div>
 

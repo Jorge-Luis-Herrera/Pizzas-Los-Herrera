@@ -2,6 +2,7 @@
 
 const API_BASE = '/api';
 const TOKEN_KEY = 'admin_token';
+const ORDERS_REFRESH_MS = 20000;
 
 let adminState = {
   products: [],
@@ -9,7 +10,10 @@ let adminState = {
   pendingCompleteOrderId: null,
   pendingDeleteOrderId: null,
   orderSearchQuery: '',
-  activeOrderTab: 'pending'
+  activeOrderTab: 'pending',
+  knownOrderIds: new Set(),
+  ordersTimer: null,
+  lastAnnouncedCount: 0
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -20,6 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initAdminForms();
   initImageUploadAreas();
   initOrdersSearch();
+  initSafeActions();
 
   if (getToken()) {
     showAdminPanel();
@@ -53,6 +58,7 @@ async function adminFetch(url, options = {}) {
   const res = await fetch(url, opts);
   if (res.status === 401) {
     clearToken();
+    stopOrdersPolling();
     showLoginView();
     throw new Error('Sesión expirada. Vuelve a iniciar sesión.');
   }
@@ -60,6 +66,7 @@ async function adminFetch(url, options = {}) {
 }
 
 function showLoginView() {
+  stopOrdersPolling();
   document.getElementById('admin-login-view').hidden = false;
   document.getElementById('admin-panel').hidden = true;
 }
@@ -69,6 +76,7 @@ function showAdminPanel() {
   document.getElementById('admin-panel').hidden = false;
   loadAdminProducts();
   loadAdminOrders();
+  startOrdersPolling();
 }
 
 function initLogin() {
@@ -95,6 +103,8 @@ function initLogin() {
       const data = await res.json();
       setToken(data.token);
       document.getElementById('form-admin-login').reset();
+      adminState.knownOrderIds = new Set();
+      adminState.lastAnnouncedCount = 0;
       showAdminPanel();
       showToast('Sesión iniciada');
     } catch (err) {
@@ -111,6 +121,7 @@ function initLogin() {
       });
     } catch (_) { /* ignore */ }
     clearToken();
+    stopOrdersPolling();
     showLoginView();
     showToast('Sesión cerrada');
   });
@@ -121,9 +132,52 @@ function showToast(message) {
   if (!toast) return;
   toast.textContent = message;
   toast.classList.add('show');
-  setTimeout(() => {
+  clearTimeout(showToast._timer);
+  showToast._timer = setTimeout(() => {
     toast.classList.remove('show');
   }, 3000);
+}
+
+/* ------------------------------------------------------------------
+ * Delegación de eventos segura.
+ *
+ * Antes los botones usaban atributos onclick="" con datos del pedido
+ * interpolados dentro de la cadena. Como `escapeHtml` convierte `'` en
+ * `&#39;` y el parser HTML vuelve a decodificar esa entidad a `'`, un
+ * cliente podía cerrar la cadena de JavaScript con su nombre y ejecutar
+ * código en el navegador del admin (XSS almacenado).
+ *
+ * Ahora los botones solo llevan un `data-id` (UUID) y el nombre se busca
+ * en `adminState.orders`, por lo que ningún dato del cliente llega al HTML.
+ * ------------------------------------------------------------------ */
+
+function initSafeActions() {
+  document.addEventListener('click', (event) => {
+    const actionEl = event.target.closest('[data-action]');
+    if (!actionEl) return;
+
+    const id = actionEl.getAttribute('data-id');
+    switch (actionEl.getAttribute('data-action')) {
+      case 'edit-product':
+        openEditProductModal(id);
+        break;
+      case 'toggle-product':
+        toggleProductAvailability(id, actionEl.getAttribute('data-available') === 'true');
+        break;
+      case 'delete-product':
+        deleteProduct(id);
+        break;
+      case 'change-status':
+        updateOrderStatus(id, actionEl.getAttribute('data-status'));
+        break;
+      case 'complete-order':
+        completeOrder(id);
+        break;
+      case 'delete-order':
+        deleteOrder(id);
+        break;
+    }
+  });
 }
 
 function initAdminTabs() {
@@ -262,7 +316,7 @@ function renderAdminProducts() {
   }
 
   container.innerHTML = adminState.products.map(p => `
-    <div class="product-card ${p.image ? 'has-image' : ''}" ${p.image ? `style="background-image: url('/uploads/${escapeHtml(p.image)}');"` : ''}>
+    <div class="product-card ${p.image ? 'has-image' : ''}" ${p.image ? `style="background-image: url('/uploads/${encodeURIComponent(p.image)}');"` : ''}>
       ${p.image ? '<div class="product-card-overlay"></div>' : ''}
       <span class="product-badge ${p.available ? 'badge-available' : 'badge-unavailable'}">
         ${p.available ? 'Disponible' : 'Agotado'}
@@ -277,15 +331,15 @@ function renderAdminProducts() {
 
       <div class="admin-product-actions">
         <div class="admin-product-actions-grid">
-          <button class="btn-action admin-product-action" onclick="openEditProductModal('${p.id}')">
+          <button type="button" class="btn-action admin-product-action" data-action="edit-product" data-id="${escapeHtml(p.id)}">
             ✏️ Editar
           </button>
-          <button class="btn-action admin-product-action ${p.available ? 'is-pause' : 'is-activate'}" onclick="toggleProductAvailability('${p.id}', ${!p.available})">
+          <button type="button" class="btn-action admin-product-action ${p.available ? 'is-pause' : 'is-activate'}" data-action="toggle-product" data-id="${escapeHtml(p.id)}" data-available="${!p.available}">
             ${p.available ? '⏸️ Pausar' : '▶️ Activar'}
           </button>
         </div>
 
-        <button class="btn-action admin-product-action is-delete" onclick="deleteProduct('${p.id}')">
+        <button type="button" class="btn-action admin-product-action is-delete" data-action="delete-product" data-id="${escapeHtml(p.id)}">
           🗑️ Eliminar Producto
         </button>
       </div>
@@ -295,7 +349,7 @@ function renderAdminProducts() {
 
 async function toggleProductAvailability(id, newStatus) {
   try {
-    const res = await adminFetch(`${API_BASE}/products/${id}`, {
+    const res = await adminFetch(`${API_BASE}/products/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ available: newStatus })
@@ -321,9 +375,16 @@ function openEditProductModal(id) {
   document.getElementById('edit-prod-desc').value = product.description;
   document.getElementById('edit-prod-available').checked = product.available;
 
+  const clearBox = document.getElementById('edit-prod-clear-image');
+  if (clearBox) {
+    clearBox.checked = false;
+    clearBox.disabled = !product.image;
+    clearBox.closest('label')?.style.setProperty('display', product.image ? 'flex' : 'none');
+  }
+
   const preview = document.getElementById('edit-image-preview');
   if (product.image) {
-    preview.innerHTML = `<img src="/uploads/${escapeHtml(product.image)}" style="width: 100%; height: 160px; object-fit: cover; border-radius: 8px;">`;
+    preview.innerHTML = `<img src="/uploads/${encodeURIComponent(product.image)}" style="width: 100%; height: 160px; object-fit: cover; border-radius: 8px;">`;
     preview.classList.remove('image-upload-placeholder');
   } else {
     preview.innerHTML = `
@@ -346,7 +407,7 @@ async function deleteProduct(id) {
   }
 
   try {
-    const res = await adminFetch(`${API_BASE}/products/${id}`, {
+    const res = await adminFetch(`${API_BASE}/products/${encodeURIComponent(id)}`, {
       method: 'DELETE'
     });
 
@@ -363,14 +424,19 @@ function uploadProductImage(productId, fileInputId) {
   const fileInput = document.getElementById(fileInputId);
   if (!fileInput || !fileInput.files.length) return Promise.resolve();
 
-  const formData = new FormData();
-  formData.append('image', fileInput.files[0]);
+  const file = fileInput.files[0];
+  if (file.size > 5 * 1024 * 1024) {
+    return Promise.reject(new Error('La imagen no puede superar los 5 MB'));
+  }
 
-  return adminFetch(`${API_BASE}/products/${productId}/image`, {
+  const formData = new FormData();
+  formData.append('image', file);
+
+  return adminFetch(`${API_BASE}/products/${encodeURIComponent(productId)}/image`, {
     method: 'POST',
     body: formData
   }).then(res => {
-    if (!res.ok) throw new Error('Error al subir imagen');
+    if (!res.ok) return res.text().then(t => { throw new Error(t || 'Error al subir imagen'); });
     return res.json();
   });
 }
@@ -407,6 +473,17 @@ function initImageUploadAreas() {
   }
 }
 
+function resetImagePreview(previewId) {
+  const preview = document.getElementById(previewId);
+  if (!preview) return;
+  preview.innerHTML = `
+    <span style="font-size: 1.5rem;">📷</span>
+    <span>Seleccionar imagen</span>
+    <span style="font-size: 0.75rem; color: var(--text-dim);">JPG, PNG, WebP (max 5MB)</span>
+  `;
+  preview.classList.add('image-upload-placeholder');
+}
+
 function initAdminForms() {
   const createForm = document.getElementById('form-create-product');
   const createSubmitButton = createForm.querySelector('button[type="submit"]');
@@ -427,6 +504,10 @@ function initAdminForms() {
     const description = document.getElementById('prod-desc').value.trim();
 
     try {
+      if (!Number.isFinite(price) || price <= 0) {
+        throw new Error('El precio debe ser un número mayor que cero');
+      }
+
       const res = await adminFetch(`${API_BASE}/products`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -441,13 +522,8 @@ function initAdminForms() {
         await uploadProductImage(product.id, 'prod-image');
       }
 
-      document.getElementById('form-create-product').reset();
-      document.getElementById('create-image-preview').innerHTML = `
-        <span style="font-size: 1.5rem;">📷</span>
-        <span>Seleccionar imagen</span>
-        <span style="font-size: 0.75rem; color: var(--text-dim);">JPG, PNG, WebP (max 5MB)</span>
-      `;
-      document.getElementById('create-image-preview').classList.add('image-upload-placeholder');
+      createForm.reset();
+      resetImagePreview('create-image-preview');
       document.getElementById('modal-create-product').classList.remove('active');
       showToast('Producto creado con éxito');
       loadAdminProducts();
@@ -463,6 +539,8 @@ function initAdminForms() {
 
   document.getElementById('form-edit-product').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const submitButton = e.target.querySelector('button[type="submit"]');
+    if (submitButton) submitButton.disabled = true;
 
     const id = document.getElementById('edit-prod-id').value;
     const name = document.getElementById('edit-prod-name').value.trim();
@@ -470,17 +548,24 @@ function initAdminForms() {
     const category = document.getElementById('edit-prod-category').value;
     const description = document.getElementById('edit-prod-desc').value.trim();
     const available = document.getElementById('edit-prod-available').checked;
+    const clearImage = document.getElementById('edit-prod-clear-image')?.checked || false;
 
     try {
-      const res = await adminFetch(`${API_BASE}/products/${id}`, {
+      if (!Number.isFinite(price) || price <= 0) {
+        throw new Error('El precio debe ser un número mayor que cero');
+      }
+
+      const res = await adminFetch(`${API_BASE}/products/${encodeURIComponent(id)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, price, category, description, available })
+        body: JSON.stringify({ name, price, category, description, available, clear_image: clearImage })
       });
 
       if (!res.ok) throw new Error('Error al actualizar producto');
 
-      if (document.getElementById('edit-prod-image').files.length) {
+      if (clearImage) {
+        resetImagePreview('edit-image-preview');
+      } else if (document.getElementById('edit-prod-image').files.length) {
         await uploadProductImage(id, 'edit-prod-image');
       }
 
@@ -489,6 +574,8 @@ function initAdminForms() {
       loadAdminProducts();
     } catch (err) {
       alert(`Error: ${err.message}`);
+    } finally {
+      if (submitButton) submitButton.disabled = false;
     }
   });
 }
@@ -496,14 +583,19 @@ function initAdminForms() {
 async function loadAdminOrders() {
   const container = document.getElementById('admin-orders-container');
   if (!container) return;
+  // Si el usuario está escribiendo una búsqueda, no se recarga la lista:
+  // perder el foco mientras se teclea es muy molesto.
+  if (document.activeElement?.id === 'orders-search-id') return;
 
   try {
-    const res = await adminFetch(`${API_BASE}/orders`);
+    const res = await adminFetch(`${API_BASE}/orders?limit=200`);
     if (!res.ok) throw new Error('Error al obtener pedidos');
     adminState.orders = await res.json();
+    announceNewOrders();
     renderAdminOrders();
   } catch (err) {
     console.error(err);
+    if (err.message.includes('Sesión expirada')) return;
     container.innerHTML = `
       <div class="empty-state">
         <div class="empty-state-icon">⚠️</div>
@@ -511,6 +603,78 @@ async function loadAdminOrders() {
       </div>
     `;
   }
+}
+
+/* ------------------------------------------------------------------
+ * Actualización automática de pedidos.
+ *
+ * Antes había que pulsar "Actualizar" a mano, y en un negocio real eso
+ * significaba pedidos que nadie veía hasta que el cliente reclamaba.
+ * ------------------------------------------------------------------ */
+
+function startOrdersPolling() {
+  stopOrdersPolling();
+  adminState.ordersTimer = setInterval(() => {
+    if (!getToken()) return;
+    if (document.hidden) return;
+    loadAdminOrders();
+  }, ORDERS_REFRESH_MS);
+}
+
+function stopOrdersPolling() {
+  if (adminState.ordersTimer) {
+    clearInterval(adminState.ordersTimer);
+    adminState.ordersTimer = null;
+  }
+}
+
+function announceNewOrders() {
+  const active = adminState.orders.filter(o => o.status === 'Pendiente');
+  const ids = new Set(adminState.orders.map(o => o.id));
+
+  // Primera carga tras abrir el panel: se memoriza sin avisar.
+  if (adminState.knownOrderIds.size === 0) {
+    adminState.knownOrderIds = ids;
+    adminState.lastAnnouncedCount = active.length;
+    return;
+  }
+
+  const nuevos = active.filter(o => !adminState.knownOrderIds.has(o.id));
+
+  if (nuevos.length > 0) {
+    const plural = nuevos.length === 1 ? 'Hay 1 pedido nuevo' : `Hay ${nuevos.length} pedidos nuevos`;
+    showToast(`🔔 ${plural} — revisa la pestaña Pedidos`);
+    playNewOrderSound();
+
+    if (document.getElementById('tab-orders') && !document.getElementById('tab-orders').classList.contains('active')) {
+      const badge = document.getElementById('orders-badge');
+      if (badge) {
+        badge.textContent = nuevos.length;
+        badge.hidden = false;
+      }
+    }
+  }
+
+  adminState.knownOrderIds = ids;
+  adminState.lastAnnouncedCount = active.length;
+}
+
+function playNewOrderSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.value = 880;
+    osc.type = 'sine';
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.36);
+    setTimeout(() => ctx.close(), 600);
+  } catch (_) { /* el audio es un extra, nunca debe romper nada */ }
 }
 
 function initOrdersSearch() {
@@ -589,6 +753,14 @@ function renderAdminOrders() {
   const container = document.getElementById('admin-orders-container');
   if (!container) return;
 
+  const badge = document.getElementById('orders-badge');
+  if (badge && !badge.hidden) {
+    const nuevosPendientes = adminState.orders.filter(
+      o => o.status === 'Pendiente' && !adminState.knownOrderIds.has(o.id)
+    );
+    if (nuevosPendientes.length === 0) badge.hidden = true;
+  }
+
   if (adminState.orders.length === 0) {
     container.innerHTML = `
       <div class="empty-state">
@@ -608,8 +780,8 @@ function renderAdminOrders() {
       <div class="empty-state">
         <div class="empty-state-icon">🔍</div>
         <p>${query
-          ? `No hay pedidos que coincidan con <strong>${escapeHtml(query)}</strong> en ${tabLabels[adminState.activeOrderTab]}.`
-          : `No hay pedidos ${tabLabels[adminState.activeOrderTab]}.`
+          ? `No hay pedidos que coincidan con <strong>${escapeHtml(query)}</strong> en ${escapeHtml(tabLabels[adminState.activeOrderTab])}.`
+          : `No hay pedidos ${escapeHtml(tabLabels[adminState.activeOrderTab])}.`
         }</p>
       </div>
     `;
@@ -619,6 +791,7 @@ function renderAdminOrders() {
   container.innerHTML = filtered.map(o => {
     // API aplana OrderWithItems (serde flatten): campos del pedido están en la raíz
     const items = o.items || [];
+    const id = escapeHtml(o.id);
 
     const statusClass = {
       'Pendiente': 'status-pendiente',
@@ -633,14 +806,17 @@ function renderAdminOrders() {
       <div class="order-card">
         <div class="order-card-header">
           <div>
-            <span class="order-id">Pedido #${o.id.slice(0, 8)}</span>
-            <span class="order-date"> • ${new Date(o.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+            <span class="order-id">Pedido #${escapeHtml(o.id.slice(0, 8))}</span>
+            <span class="order-date"> • ${escapeHtml(formatDate(o.created_at))}</span>
           </div>
           <span class="status-badge ${statusClass}">${escapeHtml(o.status)}</span>
         </div>
 
         <div>
-          <p><strong>Cliente:</strong> ${escapeHtml(o.customer_name)}${o.customer_phone ? ` (${escapeHtml(o.customer_phone)})` : ''}</p>
+          <p><strong>Cliente:</strong> ${escapeHtml(o.customer_name)}</p>
+          <p><strong>Teléfono:</strong> ${o.customer_phone
+            ? `<a href="tel:${escapeHtml(o.customer_phone)}" style="color: var(--primary);">${escapeHtml(o.customer_phone)}</a>`
+            : '<span style="color: var(--text-dim);">no indicado</span>'}</p>
           <p><strong>CI:</strong> ${escapeHtml(o.customer_id_number || '—')}</p>
           <p><strong>Dirección:</strong> ${escapeHtml(o.delivery_address)}</p>
           <p><strong>Detalle:</strong> ${itemsSummary}</p>
@@ -649,31 +825,30 @@ function renderAdminOrders() {
         </div>
 
         <div class="order-actions">
-          <select class="form-select" style="width: auto; padding: 0.35rem 0.7rem; font-size: 0.85rem;" onchange="updateOrderStatus('${o.id}', this.value)">
-            <option value="Pendiente" ${o.status === 'Pendiente' ? 'selected' : ''}>Pendiente</option>
-            <option value="En Preparación" ${o.status === 'En Preparación' ? 'selected' : ''}>En Preparación</option>
-            <option value="En Camino" ${o.status === 'En Camino' ? 'selected' : ''}>En Camino</option>
-            <option value="Entregado" ${o.status === 'Entregado' ? 'selected' : ''}>Entregado</option>
+          <select class="form-select" style="width: auto; padding: 0.35rem 0.7rem; font-size: 0.85rem;" data-action="change-status" data-id="${id}" data-status="${escapeHtml(o.status)}">
+            ${['Pendiente', 'En Preparación', 'En Camino', 'Entregado'].map(s =>
+              `<option value="${escapeHtml(s)}" ${o.status === s ? 'selected' : ''}>${escapeHtml(s)}</option>`
+            ).join('')}
           </select>
 
           ${o.status !== 'Entregado' ? `
-            <button type="button" class="btn-action btn-complete" onclick="completeOrder('${o.id}')">
+            <button type="button" class="btn-action btn-complete" data-action="complete-order" data-id="${id}">
               Completar pedido
             </button>
           ` : `
-            <button type="button" class="btn-delete-order" onclick="deleteOrder('${o.id}', '${escapeHtml(o.customer_name)}')">
+            <button type="button" class="btn-delete-order" data-action="delete-order" data-id="${id}">
               🗑️ Eliminar
             </button>
           `}
 
-          ${o.whatsapp_url ? `
-            <a href="${o.whatsapp_url}" target="_blank" class="btn-action btn-whatsapp">
-              💬 Abrir WhatsApp
+          ${o.customer_phone ? `
+            <a href="https://wa.me/${encodeURIComponent(o.customer_phone.replace(/[^0-9]/g, ''))}" target="_blank" rel="noopener noreferrer" class="btn-action btn-whatsapp">
+              💬 WhatsApp cliente
             </a>
           ` : ''}
 
           ${o.google_maps_url ? `
-            <a href="${o.google_maps_url}" target="_blank" class="btn-action btn-maps">
+            <a href="${escapeHtml(o.google_maps_url)}" target="_blank" rel="noopener noreferrer" class="btn-action btn-maps">
               📍 Ver en Mapa
             </a>
           ` : ''}
@@ -683,9 +858,21 @@ function renderAdminOrders() {
   }).join('');
 }
 
-async function updateOrderStatus(orderId, newStatus) {
+function formatDate(iso) {
   try {
-    const res = await adminFetch(`${API_BASE}/orders/${orderId}/status`, {
+    return new Date(iso).toLocaleString([], {
+      day: '2-digit', month: '2-digit', year: '2-digit',
+      hour: '2-digit', minute: '2-digit'
+    });
+  } catch (_) {
+    return iso;
+  }
+}
+
+async function updateOrderStatus(orderId, newStatus) {
+  if (!newStatus) return;
+  try {
+    const res = await adminFetch(`${API_BASE}/orders/${encodeURIComponent(orderId)}/status`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: newStatus })
@@ -700,60 +887,47 @@ async function updateOrderStatus(orderId, newStatus) {
   }
 }
 
-async function completeOrder(orderId) {
+function renderOrderSummaryBox(boxId, order, includeStatus) {
+  const itemsSummary = (order.items || [])
+    .map(i => `${i.quantity}x ${escapeHtml(i.product_name)}`)
+    .join(', ');
+
+  const box = document.getElementById(boxId);
+  if (!box) return;
+
+  box.innerHTML = `
+    <p><strong>Pedido:</strong> #${escapeHtml(order.id.slice(0, 8))}</p>
+    <p><strong>Cliente:</strong> ${escapeHtml(order.customer_name)}</p>
+    <p><strong>Teléfono:</strong> ${order.customer_phone ? escapeHtml(order.customer_phone) : '—'}</p>
+    <p><strong>CI:</strong> ${escapeHtml(order.customer_id_number || '—')}</p>
+    <p><strong>Dirección:</strong> ${escapeHtml(order.delivery_address)}</p>
+    <p><strong>Detalle:</strong> ${itemsSummary || '—'}</p>
+    ${includeStatus ? `<p><strong>Estado actual:</strong> ${escapeHtml(order.status)}</p>` : ''}
+    <p style="font-size: 1.05rem; font-weight: 700; color: var(--primary); margin-top: 0.4rem;">Total: $${Number(order.total_amount).toFixed(2)}</p>
+  `;
+}
+
+function completeOrder(orderId) {
   const order = adminState.orders.find(o => o.id === orderId);
   if (!order) return;
 
   adminState.pendingCompleteOrderId = orderId;
-
-  const items = order.items || [];
-  const itemsSummary = items
-    .map(i => `${i.quantity}x ${escapeHtml(i.product_name)}`)
-    .join(', ');
-
-  const summaryBox = document.getElementById('complete-summary-box');
-  if (summaryBox) {
-    summaryBox.innerHTML = `
-      <p><strong>Pedido:</strong> #${escapeHtml(order.id.slice(0, 8))}</p>
-      <p><strong>Cliente:</strong> ${escapeHtml(order.customer_name)}${order.customer_phone ? ` (${escapeHtml(order.customer_phone)})` : ''}</p>
-      <p><strong>CI:</strong> ${escapeHtml(order.customer_id_number || '—')}</p>
-      <p><strong>Dirección:</strong> ${escapeHtml(order.delivery_address)}</p>
-      <p><strong>Detalle:</strong> ${itemsSummary || '—'}</p>
-      <p><strong>Estado actual:</strong> ${escapeHtml(order.status)}</p>
-      <p style="font-size: 1.05rem; font-weight: 700; color: var(--primary); margin-top: 0.4rem;">Total: $${Number(order.total_amount).toFixed(2)}</p>
-    `;
-  }
-
+  renderOrderSummaryBox('complete-summary-box', order, true);
   document.getElementById('modal-complete-order')?.classList.add('active');
 }
 
-async function deleteOrder(orderId, customerName) {
+function deleteOrder(orderId) {
   const order = adminState.orders.find(o => o.id === orderId);
   if (!order) return;
 
   adminState.pendingDeleteOrderId = orderId;
-
-  const items = order.items || [];
-  const itemsSummary = items
-    .map(i => `${i.quantity}x ${escapeHtml(i.product_name)}`)
-    .join(', ');
-
-  const summaryBox = document.getElementById('delete-summary-box');
-  if (summaryBox) {
-    summaryBox.innerHTML = `
-      <p><strong>Pedido:</strong> #${escapeHtml(order.id.slice(0, 8))}</p>
-      <p><strong>Cliente:</strong> ${escapeHtml(order.customer_name)}</p>
-      <p><strong>Detalle:</strong> ${itemsSummary || '—'}</p>
-      <p style="font-size: 1.05rem; font-weight: 700; color: var(--primary); margin-top: 0.4rem;">Total: $${Number(order.total_amount).toFixed(2)}</p>
-    `;
-  }
-
+  renderOrderSummaryBox('delete-summary-box', order, false);
   document.getElementById('modal-delete-order')?.classList.add('active');
 }
 
 async function executeDeleteOrder(orderId) {
   try {
-    const res = await adminFetch(`${API_BASE}/orders/${orderId}`, {
+    const res = await adminFetch(`${API_BASE}/orders/${encodeURIComponent(orderId)}`, {
       method: 'DELETE'
     });
 
@@ -767,8 +941,8 @@ async function executeDeleteOrder(orderId) {
 }
 
 function escapeHtml(str) {
-  if (!str) return '';
-  return str.replace(/[&<>"']/g, match => ({
+  if (str === null || str === undefined) return '';
+  return String(str).replace(/[&<>"']/g, match => ({
     '&': '&amp;',
     '<': '&lt;',
     '>': '&gt;',

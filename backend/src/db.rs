@@ -4,10 +4,16 @@ use sea_orm::{
 };
 
 pub async fn init_db() -> Result<DatabaseConnection, DbErr> {
-    // Asegurar que el archivo de base de datos o su directorio existan
     let db_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "sqlite://pizzeria.db?mode=rwc".to_string());
+    init_db_with_url(&db_url).await
+}
 
+/// Igual que `init_db` pero con la URL explícita.
+/// Los tests la usan para apuntar a su propia base temporal en lugar de
+/// depender de la variable de entorno `DATABASE_URL`, que es global al proceso
+/// y provocaría carreras entre tests en paralelo.
+pub async fn init_db_with_url(db_url: &str) -> Result<DatabaseConnection, DbErr> {
     let db = Database::connect(db_url).await?;
 
     // Activar modo WAL (Write-Ahead Logging) para mejor rendimiento de lectura/escritura concurrente
@@ -23,6 +29,8 @@ pub async fn init_db() -> Result<DatabaseConnection, DbErr> {
 
 async fn create_tables(db: &DatabaseConnection) -> Result<(), DbErr> {
     // Tabla de Productos
+    // `image` se declara aquí para que una base nueva no dependa de la
+    // migración; `migrate_schema` la añade a las bases ya existentes.
     let create_products_sql = r#"
     CREATE TABLE IF NOT EXISTS products (
         id TEXT PRIMARY KEY NOT NULL,
@@ -31,7 +39,8 @@ async fn create_tables(db: &DatabaseConnection) -> Result<(), DbErr> {
         price REAL NOT NULL,
         category TEXT NOT NULL DEFAULT 'Pizza',
         available BOOLEAN NOT NULL DEFAULT 1,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        image TEXT DEFAULT NULL
     );
     "#;
 
@@ -83,20 +92,14 @@ async fn migrate_schema(db: &DatabaseConnection) -> Result<(), DbErr> {
         println!("📦 Migración: columna orders.customer_id_number añadida");
     }
     if !column_exists(db, "products", "image").await? {
-        db.execute_unprepared(
-            "ALTER TABLE products ADD COLUMN image TEXT DEFAULT NULL",
-        )
-        .await?;
+        db.execute_unprepared("ALTER TABLE products ADD COLUMN image TEXT DEFAULT NULL")
+            .await?;
         println!("📦 Migración: columna products.image añadida");
     }
     Ok(())
 }
 
-async fn column_exists(
-    db: &DatabaseConnection,
-    table: &str,
-    column: &str,
-) -> Result<bool, DbErr> {
+async fn column_exists(db: &DatabaseConnection, table: &str, column: &str) -> Result<bool, DbErr> {
     #[derive(Debug, sea_orm::FromQueryResult)]
     struct ColumnInfo {
         name: String,

@@ -5,6 +5,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use subtle::ConstantTimeEq;
 
 use crate::state::AppState;
 
@@ -58,18 +59,71 @@ impl FromRequestParts<AppState> for AdminAuth {
     }
 }
 
+/// Clave usada para contabilizar intentos fallidos de login.
+/// Se combina IP y usuario para no castigar a usuarios legítimos distintos
+/// que compartan IP (por ejemplo, la misma red de la pizzería).
+fn throttle_key(headers: &HeaderMap, username: &str) -> String {
+    let ip = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .map(|s| s.trim().to_string())
+        .or_else(|| {
+            headers
+                .get("x-real-ip")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_else(|| "desconocida".to_string());
+    format!("{}|{}", ip, username)
+}
+
 pub async fn login(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<LoginDto>,
 ) -> Result<Json<LoginResponse>, (StatusCode, String)> {
-    if payload.username != state.admin_user || payload.password != state.admin_password {
+    let key = throttle_key(&headers, &payload.username);
+
+    if let Some(secs) = state.login_lockout(&key).await {
+        tracing::warn!("Login bloqueado por exceso de intentos: {}", key);
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            format!(
+                "Demasiados intentos fallidos. Intenta de nuevo en {} segundos.",
+                secs
+            ),
+        ));
+    }
+
+    // Comparación en tiempo constante para no filtrar la contraseña por tiempos.
+    let user_ok = bool::from(
+        state
+            .admin_user
+            .as_bytes()
+            .ct_eq(payload.username.as_bytes()),
+    );
+    let pass_ok = bool::from(
+        state
+            .admin_password
+            .as_bytes()
+            .ct_eq(payload.password.as_bytes()),
+    );
+
+    if !(user_ok && pass_ok) {
+        state.record_login_failure(&key).await;
+        tracing::warn!(
+            "Intento de login fallido para usuario '{}'",
+            payload.username
+        );
         return Err((
             StatusCode::UNAUTHORIZED,
             "Usuario o contraseña incorrectos".to_string(),
         ));
     }
 
-    let token = state.issue_token().await;
+    state.clear_login_failures(&key).await;
+    let token = state.issue_token();
     Ok(Json(LoginResponse { token }))
 }
 

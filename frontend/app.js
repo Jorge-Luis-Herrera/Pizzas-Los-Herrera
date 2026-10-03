@@ -1,11 +1,12 @@
 // Pizzería Los Herrera - JavaScript para Clientes (Landing, Pedidos, GPS & WhatsApp)
 
 const API_BASE = '/api';
+const CART_KEY = 'pizzeria_cart';
 
 // App State
 let state = {
   products: [],
-  cart: JSON.parse(localStorage.getItem('pizzeria_cart') || '[]'),
+  cart: JSON.parse(localStorage.getItem(CART_KEY) || '[]'),
   selectedCategory: 'all',
   pendingOrderPayload: null
 };
@@ -23,13 +24,13 @@ document.addEventListener('DOMContentLoaded', () => {
   updateCartUI();
 });
 
-// Helper: Toast Notifications
 function showToast(message) {
   const toast = document.getElementById('toast-msg');
   if (!toast) return;
   toast.textContent = message;
   toast.classList.add('show');
-  setTimeout(() => {
+  clearTimeout(showToast._timer);
+  showToast._timer = setTimeout(() => {
     toast.classList.remove('show');
   }, 3000);
 }
@@ -55,6 +56,7 @@ async function loadProducts() {
     if (!res.ok) throw new Error('Error al cargar productos');
     state.products = await res.json();
     renderProducts();
+    reconcileCartWithMenu();
   } catch (err) {
     console.error(err);
     if (container) {
@@ -72,8 +74,8 @@ function renderProducts() {
   const container = document.getElementById('products-container');
   if (!container) return;
 
-  const filtered = state.selectedCategory === 'all' 
-    ? state.products 
+  const filtered = state.selectedCategory === 'all'
+    ? state.products
     : state.products.filter(p => p.category === state.selectedCategory);
 
   if (filtered.length === 0) {
@@ -87,7 +89,7 @@ function renderProducts() {
   }
 
   container.innerHTML = filtered.map(p => `
-    <div class="product-card ${p.image ? 'has-image' : ''}" ${p.image ? `style="background-image: url('/uploads/${escapeHtml(p.image)}');"` : ''} ${p.image ? `onclick="openImageModal('/uploads/${escapeHtml(p.image)}')"` : ''}>
+    <div class="product-card ${p.image ? 'has-image' : ''}" ${p.image ? `style="background-image: url('/uploads/${encodeURIComponent(p.image)}');"` : ''} ${p.image ? `data-image="/uploads/${encodeURIComponent(p.image)}"` : ''}>
       ${p.image ? '<div class="product-card-overlay"></div>' : ''}
       <span class="product-badge ${p.available ? 'badge-available' : 'badge-unavailable'}">
         ${p.available ? 'Disponible' : 'Agotado'}
@@ -99,9 +101,9 @@ function renderProducts() {
       </div>
       <div class="product-footer" ${p.image ? 'class="product-card-content"' : ''}>
         <span class="product-price">$${p.price.toFixed(2)}</span>
-        <button 
-          class="btn-add-cart" 
-          onclick="event.stopPropagation(); addToCart('${p.id}')"
+        <button
+          class="btn-add-cart"
+          data-product-id="${escapeHtml(p.id)}"
           ${!p.available ? 'disabled' : ''}
         >
           Agregar
@@ -109,6 +111,17 @@ function renderProducts() {
       </div>
     </div>
   `).join('');
+
+  container.querySelectorAll('.product-card[data-image]').forEach(card => {
+    card.addEventListener('click', () => openImageModal(card.getAttribute('data-image')));
+  });
+
+  container.querySelectorAll('.btn-add-cart').forEach(btn => {
+    btn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      addToCart(btn.getAttribute('data-product-id'));
+    });
+  });
 }
 
 function openImageModal(src) {
@@ -133,6 +146,13 @@ function addToCart(productId) {
   if (!product || !product.available) return;
 
   const existingItem = state.cart.find(item => item.product_id === productId);
+  const currentQty = existingItem ? existingItem.quantity : 0;
+
+  if (currentQty >= 50) {
+    showToast('Has alcanzado el máximo de 50 unidades por producto');
+    return;
+  }
+
   if (existingItem) {
     existingItem.quantity += 1;
   } else {
@@ -156,6 +176,9 @@ function updateCartQuantity(productId, delta) {
   item.quantity += delta;
   if (item.quantity <= 0) {
     state.cart = state.cart.filter(i => i.product_id !== productId);
+  } else if (item.quantity > 50) {
+    item.quantity = 50;
+    showToast('Has alcanzado el máximo de 50 unidades por producto');
   }
 
   saveCart();
@@ -163,7 +186,43 @@ function updateCartQuantity(productId, delta) {
 }
 
 function saveCart() {
-  localStorage.setItem('pizzeria_cart', JSON.stringify(state.cart));
+  localStorage.setItem(CART_KEY, JSON.stringify(state.cart));
+}
+
+/**
+ * Sincroniza el carrito guardado con el menú actual.
+ *
+ * El carrito vive en localStorage, así que puede quedar desactualizado si el
+ * admin cambia precios o agota un producto. Antes el error solo aparecía al
+ * confirmar el pedido; aquí se avisa al momento de abrir el carrito.
+ */
+function reconcileCartWithMenu() {
+  if (state.cart.length === 0 || state.products.length === 0) return;
+
+  const cambios = [];
+
+  state.cart = state.cart.filter(item => {
+    const product = state.products.find(p => p.id === item.product_id);
+    if (!product) {
+      cambios.push(`"${item.product_name}" ya no está en el menú`);
+      return false;
+    }
+    if (!product.available) {
+      cambios.push(`"${product.name}" se agotó`);
+      return false;
+    }
+    if (product.price !== item.unit_price) {
+      cambios.push(`el precio de "${product.name}" cambió a $${product.price.toFixed(2)}`);
+      item.unit_price = product.price;
+    }
+    return true;
+  });
+
+  if (cambios.length === 0) return;
+
+  saveCart();
+  updateCartUI();
+  showToast(`🛒 Carrito actualizado: ${cambios[0]}`);
 }
 
 function updateCartUI() {
@@ -193,12 +252,19 @@ function updateCartUI() {
             <p>$${item.unit_price.toFixed(2)} c/u</p>
           </div>
           <div class="cart-item-controls">
-            <button class="btn-qty" onclick="updateCartQuantity('${item.product_id}', -1)">-</button>
+            <button type="button" class="btn-qty" data-action="dec" data-product-id="${escapeHtml(item.product_id)}" aria-label="Quitar uno">-</button>
             <span style="font-weight: 600; min-width: 20px; text-align: center;">${item.quantity}</span>
-            <button class="btn-qty" onclick="updateCartQuantity('${item.product_id}', 1)">+</button>
+            <button type="button" class="btn-qty" data-action="inc" data-product-id="${escapeHtml(item.product_id)}" aria-label="Añadir uno">+</button>
           </div>
         </div>
       `).join('');
+
+      container.querySelectorAll('.btn-qty').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const delta = btn.getAttribute('data-action') === 'inc' ? 1 : -1;
+          updateCartQuantity(btn.getAttribute('data-product-id'), delta);
+        });
+      });
     }
   }
 }
@@ -210,7 +276,10 @@ function initCartModal() {
   const btnClose = document.getElementById('btn-close-cart');
 
   if (btnOpen && modal) {
-    btnOpen.addEventListener('click', () => modal.classList.add('active'));
+    btnOpen.addEventListener('click', () => {
+      reconcileCartWithMenu();
+      modal.classList.add('active');
+    });
   }
   if (btnClose && modal) {
     btnClose.addEventListener('click', () => modal.classList.remove('active'));
@@ -265,17 +334,28 @@ function initCheckoutForm() {
     }
 
     const customerName = document.getElementById('cust-name').value.trim();
+    const customerPhone = document.getElementById('cust-phone').value.trim();
     const deliveryAddress = document.getElementById('cust-address').value.trim();
     const latVal = document.getElementById('cust-lat').value;
     const lngVal = document.getElementById('cust-lng').value;
     const notes = document.getElementById('cust-notes').value.trim();
-
     const customerIdNumber = document.getElementById('cust-id-number').value.trim();
+
+    if (!customerName || !deliveryAddress) {
+      alert('Completa tu nombre y la dirección de entrega.');
+      return;
+    }
+
+    // El teléfono es lo que permite al local llamar al cliente para confirmar.
+    if (!customerPhone) {
+      alert('Indica un teléfono de contacto para que podamos llamarte si hace falta.');
+      return;
+    }
 
     state.pendingOrderPayload = {
       customer_name: customerName,
       customer_id_number: customerIdNumber,
-      customer_phone: '',
+      customer_phone: customerPhone,
       delivery_address: deliveryAddress,
       latitude: latVal ? parseFloat(latVal) : null,
       longitude: lngVal ? parseFloat(lngVal) : null,
@@ -286,12 +366,15 @@ function initCheckoutForm() {
       }))
     };
 
-    // Render Order Confirmation Summary Box
+    // El total que se muestra se calcula con los precios guardados en el
+    // carrito. El servidor es la autoridad: al confirmar devuelve el total
+    // definitivo y, si ha cambiado, se avisa al cliente.
     const totalAmount = state.cart.reduce((sum, item) => sum + (item.unit_price * item.quantity), 0);
     const summaryBox = document.getElementById('confirm-summary-box');
     if (summaryBox) {
       summaryBox.innerHTML = `
         <p><strong>Cliente:</strong> ${escapeHtml(customerName)}</p>
+        <p><strong>Teléfono:</strong> ${escapeHtml(customerPhone)}</p>
         <p><strong>Entrega:</strong> ${escapeHtml(deliveryAddress)}</p>
         <p><strong>Ítems (${state.cart.length}):</strong> ${state.cart.map(i => `${i.quantity}x ${escapeHtml(i.product_name)}`).join(', ')}</p>
         ${latVal ? '<p style="color: var(--accent-green);"><strong>GPS:</strong> Ubicación adjunta ✅</p>' : ''}
@@ -299,7 +382,6 @@ function initCheckoutForm() {
       `;
     }
 
-    // Open Security Confirmation Modal
     document.getElementById('modal-confirm-order').classList.add('active');
   });
 }
@@ -322,8 +404,13 @@ function initConfirmModal() {
       btnFinalConfirm.disabled = true;
       btnFinalConfirm.textContent = '⏳ Procesando...';
 
+      // Ventana abierta de forma SÍNCRONA, dentro del clic.
+      // Si se abriera después del fetch (dentro del then), el navegador la
+      // bloquearía por no haber gesto del usuario y el cliente nunca vería el
+      // WhatsApp, aunque el pedido sí quedara registrado.
+      const waWindow = window.open('', '_blank');
+
       try {
-        // PARALELO: 1. Guardar en Base de Datos (Panel Admin) + 2. Abrir WhatsApp Pizzería
         const res = await fetch(`${API_BASE}/orders`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -332,17 +419,31 @@ function initConfirmModal() {
 
         if (!res.ok) {
           const errText = await res.text();
+          if (waWindow) waWindow.close();
           throw new Error(errText || 'Error al guardar el pedido');
         }
 
         const orderData = await res.json();
 
-        // 1. Abrir WhatsApp dirigido a la pizzería en paralelo
         if (orderData.whatsapp_url) {
-          window.open(orderData.whatsapp_url, '_blank');
+          if (waWindow) {
+            waWindow.location.href = orderData.whatsapp_url;
+          } else {
+            // Si el navegador bloqueó la ventana, al menos queda un enlace
+            // visible para que el cliente abra el chat manualmente.
+            showWhatsAppFallbackLink(orderData.whatsapp_url);
+          }
+        } else if (waWindow) {
+          waWindow.close();
         }
 
-        // 2. Limpiar carrito y cerrar ventanas
+        // El total que devuelve el servidor es el definitivo: si el precio
+        // cambió entre que se armó el carrito y se confirmó, se avisa.
+        const serverTotal = Number(orderData.total_amount);
+        const cartTotal = state.cart.reduce(
+          (sum, item) => sum + (item.unit_price * item.quantity), 0
+        );
+
         state.cart = [];
         saveCart();
         updateCartUI();
@@ -351,7 +452,11 @@ function initConfirmModal() {
         document.getElementById('modal-cart').classList.remove('active');
         document.getElementById('form-checkout').reset();
 
-        showToast('🚀 ¡Pedido confirmado! Registrado en la pizzería y enviado por WhatsApp.');
+        if (Math.abs(serverTotal - cartTotal) > 0.009) {
+          showToast(`⚠️ El precio cambió: el total final es $${serverTotal.toFixed(2)}`);
+        } else {
+          showToast('🚀 ¡Pedido confirmado! Registrado y enviado por WhatsApp.');
+        }
 
       } catch (err) {
         alert(`Error al confirmar el pedido: ${err.message}`);
@@ -363,10 +468,40 @@ function initConfirmModal() {
   }
 }
 
+/** Enlace visible por si el navegador bloqueó la ventana de WhatsApp. */
+function showWhatsAppFallbackLink(url) {
+  const existing = document.getElementById('wa-fallback');
+  if (existing) existing.remove();
+
+  const box = document.createElement('div');
+  box.id = 'wa-fallback';
+  box.className = 'modal-overlay active';
+  box.innerHTML = `
+    <div class="modal-content" style="max-width: 440px;">
+      <div class="modal-header">
+        <h3 class="modal-title">📱 Tu pedido está registrado</h3>
+        <button class="btn-close" aria-label="Cerrar">&times;</button>
+      </div>
+      <p style="color: var(--text-muted); line-height: 1.6;">
+        Tu pedido se guardó correctamente, pero el navegador bloqueó la apertura
+        automática de WhatsApp. Pulsa el botón para enviarlo a la pizzería.
+      </p>
+      <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="btn-submit" style="display:block; text-align:center; margin-top:1rem;">
+        💬 Abrir WhatsApp
+      </a>
+    </div>
+  `;
+
+  const close = () => box.remove();
+  box.querySelector('.btn-close').addEventListener('click', close);
+  box.addEventListener('click', (e) => { if (e.target === box) close(); });
+  document.body.appendChild(box);
+}
+
 // Utility: Escape HTML
 function escapeHtml(str) {
-  if (!str) return '';
-  return str.replace(/[&<>"']/g, match => ({
+  if (str === null || str === undefined) return '';
+  return String(str).replace(/[&<>"']/g, match => ({
     '&': '&amp;',
     '<': '&lt;',
     '>': '&gt;',
