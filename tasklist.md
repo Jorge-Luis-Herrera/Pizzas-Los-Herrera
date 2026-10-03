@@ -48,6 +48,33 @@ Auditoría completa del proyecto y corrección de los hallazgos.
 - [x] Sin secretos ni placeholders en el repositorio
 - [x] Documentación de `Readme.md` y `Step_By_Step.md` al día
 
+### Despliegue (2026-10-03)
+
+La suscripción de Azure está migrada a **entornos Express**, que no soportan
+Azure Files, así que el despliegue en Container Apps no podía persistir nada.
+Se migró a **Azure App Service for Containers** (plan B1) con Azure Files montado
+en `/mnt/pizzeria-data`.
+
+- [x] Diagnóstico confirmado contra la suscripción real (no era un fallo de configuración)
+- [x] Plan B1 + Web App `pizzas-los-herrera-web`
+- [x] Azure Files montado en `/mnt/pizzeria-data` (SQLite + imágenes)
+- [x] HTTPS obligatorio, TLS 1.2, `always-on`, 1 instancia
+- [x] Persistencia verificada: los datos sobreviven a un reinicio del contenedor
+- [x] Flujo completo verificado en producción (login, CRUD, pedido, listado)
+- [x] `deploy/deploy-appservice.sh` para desplegar sin depender de GitHub Actions
+- [x] Resources de prueba eliminados (`probe-*` y sus Log Analytics)
+
+### Fuera de servicio
+
+- [x] Container App `pizzas-los-herrera` eliminado
+- [x] Entornos `pizzas-los-herrera-env` y `pizzas-los-herrera-env-wp` eliminados
+- [x] Log Analytics `pizzas-los-herrera-logs` eliminado (solo lo usaban esos entornos)
+- [x] GitHub Actions eliminado: `git push` ya no despliega nada
+
+> Si algún día se quiere recuperar el despliegue automático con `git push`,
+> el script `deploy/deploy-appservice.sh` contiene todos los pasos y es la
+> referencia de lo que hay que automatizar.
+
 ## Pendiente / ideas
 
 - [ ] Historial de cambios de estado por pedido (auditoría interna)

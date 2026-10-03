@@ -5,7 +5,6 @@ COPY backend/Cargo.toml backend/Cargo.lock ./backend/
 COPY backend/src ./backend/src
 
 WORKDIR /build/backend
-# Compilar sin PDB no es soportado en Linux con este toolchain.
 RUN cargo build --release
 
 FROM debian:bookworm-slim

@@ -58,7 +58,8 @@ Abre `http://localhost:3000` para la tienda y `http://localhost:3000/admin` para
 ## Notas importantes
 
 - **Nunca** subas contraseñas reales al repositorio. Las credenciales de
-  producción viven en secretos de GitHub Actions o en `/etc/pizzeria/pizzeria.env`.
+  producción viven en `~/.azure-pizzeria.env` (chmod 600) o en
+  `/etc/pizzeria/pizzeria.env` para el deploy en VPS.
 - Los totales de los pedidos se calculan en el servidor a partir del precio de
   la base de datos. El cliente solo envía `product_id` y `quantity`.
 - El token de admin va firmado con HMAC y es válido 12 horas; sobrevive a

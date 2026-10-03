@@ -14,6 +14,10 @@ backend/target/
 # Environment / secrets
 .env
 .env.*
+# Credenciales del deploy a Azure App Service (no deben llegar al repo).
+.azure-pizzeria.env
+*.azure-pizzeria.env
+deploy/.env
 
 # OS / editor
 .DS_Store

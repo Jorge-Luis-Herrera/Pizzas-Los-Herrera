@@ -116,15 +116,42 @@ router real contra una base SQLite temporal.
 
 ## Despliegue
 
-### Automático (Azure Container Apps)
+Producción corre en un **Azure App Service for Containers** (plan B1) con la base
+SQLite y las imágenes montadas en un Azure Files share, de modo que los datos
+sobreviven a reinicios y despliegues.
 
-Cada `push` a `main` dispara `.github/workflows/deploy-azure.yml`, que primero
-ejecuta `fmt`, `clippy` y `cargo test` y solo despliega si todo pasa.
+- **Tienda:** `https://pizzas-los-herrera-web.azurewebsites.net`
+- **Panel:** `https://pizzas-los-herrera-web.azurewebsites.net/admin`
 
-Secretos requeridos: `AZURE_CREDENTIALS`, `ADMIN_USER`, `ADMIN_PASSWORD`,
-`PIZZERIA_WHATSAPP`. Opcional: variable `ALLOWED_ORIGINS`.
+> **Por qué App Service y no Container Apps:** esta suscripción de Azure está
+> migrada a **entornos Express**, que no soportan Azure Files
+> (`ExpressEnvironmentResourceNotSupported`). Como la app necesita
+> almacenamiento persistente para SQLite y las imágenes, se usa App Service,
+> que sí admite montajes de Azure Files.
 
-### Manual (VPS Rocky Linux)
+### Deploy a Azure App Service
+
+```bash
+./deploy/deploy-appservice.sh
+```
+
+El script verifica `fmt`/`clippy`/`tests`, construye la imagen, la sube al ACR,
+actualiza el Web App y comprueba el health check. Para saltar las pruebas:
+`--skip-tests`. Para usar una clave SSH en vez de contraseña del ACR: `--ssh <ruta>`.
+
+Las credenciales se leen del entorno o de `~/.azure-pizzeria.env` (nunca lo
+subas al repositorio):
+
+```bash
+# ~/.azure-pizzeria.env  (chmod 600)
+ACR_USERNAME=<salida de: az acr credential show -n cac7aa06a97facr --query username -o tsv>
+ACR_PASSWORD=<salida de: az acr credential show -n cac7aa06a97facr --query 'passwords[0].value' -o tsv>
+ADMIN_PASSWORD=<una contraseña fuerte>
+PIZZERIA_WHATSAPP=5350722776
+# Opcionales: ADMIN_USER=admin   ALLOWED_ORIGINS=
+```
+
+### Deploy a VPS Rocky Linux
 
 ```bash
 ./deploy/build-and-deploy.sh <IP_SERVIDOR> <USUARIO_SSH>
